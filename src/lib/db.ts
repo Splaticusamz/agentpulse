@@ -46,5 +46,20 @@ function migrate(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_incidents_endpoint ON incidents(endpoint_id, started_at DESC);
+
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id TEXT PRIMARY KEY,
+      endpoint_id TEXT REFERENCES endpoints(id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      events TEXT NOT NULL DEFAULT 'incident.created,incident.resolved',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS waitlist (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      plan TEXT NOT NULL DEFAULT 'pro',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }

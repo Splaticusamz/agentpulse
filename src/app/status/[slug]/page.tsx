@@ -10,6 +10,52 @@ async function getStatus(slug: string) {
   return res.json();
 }
 
+function Sparkline({ checks }: { checks: Check[] }) {
+  if (!checks || checks.length < 2) return null;
+  const data = checks.slice(0, 96).reverse();
+  const times = data.map((c) => c.response_time || 0);
+  const max = Math.max(...times, 1);
+  const min = Math.min(...times);
+  const w = 600;
+  const h = 80;
+  const pad = 4;
+  const points = times
+    .map((t, i) => {
+      const x = pad + (i / (times.length - 1)) * (w - pad * 2);
+      const y = pad + (1 - (t - min) / (max - min || 1)) * (h - pad * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-sm font-semibold text-zinc-300">Response Time (24h)</h3>
+        <div className="flex gap-4 text-xs text-zinc-500">
+          <span>Min: {min}ms</span>
+          <span>Avg: {avg}ms</span>
+          <span>Max: {max}ms</span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-20" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polygon
+          points={`${pad},${h - pad} ${points} ${w - pad},${h - pad}`}
+          fill="url(#sparkGrad)"
+        />
+        <polyline points={points} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
 export default async function StatusPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const data = await getStatus(slug);
@@ -23,13 +69,26 @@ export default async function StatusPage({ params }: { params: Promise<{ slug: s
       <div className="flex items-center gap-4 mb-8">
         <div className={`w-4 h-4 rounded-full ${statusColor} animate-pulse`} />
         <h1 className="text-3xl font-bold">{endpoint.name}</h1>
-        <span className="text-zinc-500 text-sm ml-auto">{endpoint.url}</span>
+        <span className="text-zinc-500 text-sm ml-auto font-mono">{endpoint.url}</span>
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-8">
         <StatBox label="Status" value={status.toUpperCase()} color={statusColor} />
         <StatBox label="Uptime (24h)" value={`${uptimePercent}%`} />
         <StatBox label="Avg Response" value={avgResponseTime ? `${avgResponseTime}ms` : "N/A"} />
+      </div>
+
+      {/* Sparkline */}
+      <div className="mb-8">
+        <Sparkline checks={checks as Check[]} />
+      </div>
+
+      {/* Badge embed */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-8">
+        <h3 className="text-sm font-semibold text-zinc-300 mb-2">📎 Embed Badge</h3>
+        <code className="text-xs text-zinc-400 bg-zinc-800 px-3 py-2 rounded block overflow-x-auto">
+          {`![uptime](${typeof window !== "undefined" ? window.location.origin : ""}/api/badge/${slug})`}
+        </code>
       </div>
 
       <h2 className="text-xl font-semibold mb-4">Recent Checks</h2>
@@ -65,7 +124,7 @@ export default async function StatusPage({ params }: { params: Promise<{ slug: s
       )}
 
       <div className="mt-8 text-center text-zinc-600 text-sm">
-        Powered by <a href="/" className="text-emerald-400 hover:underline">AgentPulse</a>
+        Powered by <a href="/" className="text-emerald-400 hover:underline">AgentPulse</a> · <a href="/dashboard" className="text-emerald-400 hover:underline">Dashboard</a>
       </div>
     </main>
   );

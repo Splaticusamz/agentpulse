@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { checkEndpoint } from "@/lib/checker";
+import { fireWebhooks } from "@/lib/webhooks";
 import { v4 as uuid } from "uuid";
 
 export const maxDuration = 30;
@@ -31,9 +32,23 @@ export async function POST(req: NextRequest) {
       ).get(ep.id) as { id: string } | undefined;
 
       if (result.status === "down" && !lastIncident) {
-        db.prepare("INSERT INTO incidents (id, endpoint_id, type) VALUES (?, ?, 'downtime')").run(uuid(), ep.id);
+        const incId = uuid();
+        db.prepare("INSERT INTO incidents (id, endpoint_id, type) VALUES (?, ?, 'downtime')").run(incId, ep.id);
+        const epData = ep as unknown as { name: string; url: string; slug: string };
+        await fireWebhooks("incident.created", {
+          event: "incident.created",
+          endpoint: { name: epData.name, url: epData.url, slug: (ep as unknown as { slug: string }).slug },
+          incident: { id: incId, started_at: new Date().toISOString(), type: "downtime" },
+          timestamp: new Date().toISOString(),
+        });
       } else if (result.status === "up" && lastIncident) {
         db.prepare("UPDATE incidents SET resolved_at = datetime('now') WHERE id = ?").run(lastIncident.id);
+        await fireWebhooks("incident.resolved", {
+          event: "incident.resolved",
+          endpoint: { name: ep.name, url: ep.url, slug: (ep as unknown as { slug: string }).slug },
+          incident: { id: lastIncident.id, started_at: "", resolved_at: new Date().toISOString(), type: "downtime" },
+          timestamp: new Date().toISOString(),
+        });
       }
 
       return { endpoint: ep.name, ...result };

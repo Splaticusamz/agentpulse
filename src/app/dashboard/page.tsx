@@ -1,253 +1,345 @@
-/* ──────────────────────────────────────────────────
-   AgentPulse — Internal Ops Dashboard
-   ────────────────────────────────────────────────── */
+"use client";
 
-function StatCard({ label, value, sub, color = "emerald" }: { label: string; value: string; sub?: string; color?: string }) {
-  const accent: Record<string, string> = {
-    emerald: "text-emerald-400",
-    cyan: "text-cyan-400",
-    amber: "text-amber-400",
-    rose: "text-rose-400",
-    violet: "text-violet-400",
-    blue: "text-blue-400",
-  };
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition">
-      <p className="text-zinc-500 text-xs uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-3xl font-bold ${accent[color] ?? "text-emerald-400"}`}>{value}</p>
-      {sub && <p className="text-zinc-600 text-xs mt-1">{sub}</p>}
-    </div>
-  );
+import { useState, useEffect, useCallback } from "react";
+
+interface Endpoint {
+  id: string;
+  name: string;
+  url: string;
+  type: string;
+  slug: string;
+  created_at: string;
 }
 
-function ProgressBar({ label, pct, color }: { label: string; pct: number; color: string }) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex justify-between text-sm">
-        <span className="text-zinc-300">{label}</span>
-        <span className="text-zinc-500">{pct}%</span>
-      </div>
-      <div className="h-2.5 bg-zinc-800 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
+interface EndpointWithStatus extends Endpoint {
+  status?: string;
+  uptime?: number;
+  avgResponse?: number;
+  lastCheck?: string;
+  checking?: boolean;
 }
 
-function FlowBox({ text, emoji, color = "border-zinc-700 bg-zinc-900" }: { text: string; emoji?: string; color?: string }) {
-  return (
-    <div className={`border rounded-lg px-4 py-2.5 text-center text-sm font-medium ${color} whitespace-nowrap`}>
-      {emoji && <span className="mr-1">{emoji}</span>}{text}
-    </div>
-  );
-}
-
-function Arrow() {
-  return <div className="text-zinc-600 text-lg font-bold flex items-center justify-center">→</div>;
-}
-
-function StatusDot({ ok }: { ok: boolean }) {
-  return <span className={`inline-block w-2.5 h-2.5 rounded-full ${ok ? "bg-emerald-400" : "bg-rose-400"}`} />;
+interface Webhook {
+  id: string;
+  url: string;
+  endpoint_id: string | null;
+  events: string;
 }
 
 export default function Dashboard() {
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
+  const [endpoints, setEndpoints] = useState<EndpointWithStatus[]>([]);
+  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
+  const [waitlistCount, setWaitlistCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showWebhook, setShowWebhook] = useState(false);
+  const [form, setForm] = useState({ name: "", url: "", type: "http" });
+  const [whForm, setWhForm] = useState({ url: "", endpoint_id: "", events: "incident.created,incident.resolved" });
+  const [error, setError] = useState("");
+
+  const loadData = useCallback(async () => {
+    try {
+      const [epRes, whRes, wlRes] = await Promise.all([
+        fetch("/api/endpoints"),
+        fetch("/api/webhooks"),
+        fetch("/api/waitlist"),
+      ]);
+      const eps = await epRes.json();
+      const whs = await whRes.json();
+      const wl = await wlRes.json();
+      
+      // Load status for each endpoint
+      const withStatus = await Promise.all(
+        (eps as Endpoint[]).map(async (ep) => {
+          try {
+            const statusRes = await fetch(`/api/status/${ep.slug}`);
+            if (!statusRes.ok) return { ...ep };
+            const data = await statusRes.json();
+            return {
+              ...ep,
+              status: data.status,
+              uptime: data.uptimePercent,
+              avgResponse: data.avgResponseTime,
+              lastCheck: data.checks?.[0]?.checked_at,
+            };
+          } catch {
+            return { ...ep };
+          }
+        })
+      );
+      
+      setEndpoints(withStatus);
+      setWebhooks(whs);
+      setWaitlistCount(wl.count);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const addEndpoint = async () => {
+    setError("");
+    if (!form.name || !form.url) { setError("Name and URL required"); return; }
+    const slug = form.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const res = await fetch("/api/endpoints", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...form, slug }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      setError(data.error || "Failed");
+      return;
+    }
+    setForm({ name: "", url: "", type: "http" });
+    setShowAdd(false);
+    loadData();
+  };
+
+  const deleteEndpoint = async (id: string) => {
+    await fetch(`/api/endpoints/${id}`, { method: "DELETE" });
+    loadData();
+  };
+
+  const checkNow = async (ep: EndpointWithStatus) => {
+    setEndpoints((prev) => prev.map((e) => (e.id === ep.id ? { ...e, checking: true } : e)));
+    await fetch("/api/endpoints/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint_id: ep.id }),
+    });
+    await loadData();
+  };
+
+  const addWebhook = async () => {
+    if (!whForm.url) return;
+    await fetch("/api/webhooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: whForm.url, endpoint_id: whForm.endpoint_id || null, events: whForm.events }),
+    });
+    setWhForm({ url: "", endpoint_id: "", events: "incident.created,incident.resolved" });
+    setShowWebhook(false);
+    loadData();
+  };
+
+  const deleteWebhook = async (id: string) => {
+    await fetch("/api/webhooks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    loadData();
+  };
+
+  const seedDemo = async () => {
+    await fetch("/api/seed", { method: "POST" });
+    loadData();
+  };
+
+  const statusColor = (s?: string) =>
+    s === "up" ? "bg-emerald-500" : s === "degraded" ? "bg-amber-500" : s === "down" ? "bg-red-500" : "bg-zinc-600";
+  const statusText = (s?: string) =>
+    s === "up" ? "text-emerald-400" : s === "degraded" ? "text-amber-400" : s === "down" ? "text-red-400" : "text-zinc-500";
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <div className="text-zinc-500 text-lg">Loading dashboard...</div>
+      </main>
+    );
+  }
 
   return (
-    <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold mb-1">📡 AgentPulse Dashboard</h1>
-        <p className="text-zinc-500 text-sm">Internal operations &amp; development tracker — Last updated: {now}</p>
-      </div>
+    <main className="min-h-screen bg-zinc-950 text-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">📡 AgentPulse Dashboard</h1>
+            <p className="text-zinc-500 text-sm mt-1">Monitor your AI agent endpoints</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setShowWebhook(!showWebhook)} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-sm transition">
+              🔔 Webhooks ({webhooks.length})
+            </button>
+            <button onClick={() => setShowAdd(!showAdd)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition">
+              + Add Endpoint
+            </button>
+          </div>
+        </div>
 
-      {/* ═══ Current Status ═══ */}
-      <section className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 space-y-5">
-        <h2 className="text-xl font-bold flex items-center gap-2">🟢 System Status: <span className="text-emerald-400">OPERATIONAL</span></h2>
+        {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {[
-            { name: "API Server", ok: true },
-            { name: "Cron Scheduler", ok: true },
-            { name: "Database (SQLite)", ok: true },
-            { name: "Badge Service", ok: true },
-          ].map((s) => (
-            <div key={s.name} className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3">
-              <StatusDot ok={s.ok} />
-              <span className="text-sm text-zinc-300">{s.name}</span>
+          <StatCard label="Endpoints" value={String(endpoints.length)} color="emerald" />
+          <StatCard label="Online" value={String(endpoints.filter((e) => e.status === "up").length)} color="cyan" />
+          <StatCard label="Incidents" value={String(endpoints.filter((e) => e.status === "down").length)} color="rose" />
+          <StatCard label="Waitlist" value={String(waitlistCount)} color="violet" />
+        </div>
+
+        {/* Add Endpoint Form */}
+        {showAdd && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+            <h3 className="font-semibold text-lg">Add Endpoint</h3>
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <input
+                placeholder="Name (e.g. OpenAI API)"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+              />
+              <input
+                placeholder="URL (e.g. https://api.openai.com)"
+                value={form.url}
+                onChange={(e) => setForm({ ...form, url: e.target.value })}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+              />
+              <div className="flex gap-3">
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm({ ...form, type: e.target.value })}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 flex-1"
+                >
+                  <option value="http">HTTP</option>
+                  <option value="mcp">MCP (SSE)</option>
+                  <option value="acp">ACP (Manifest)</option>
+                </select>
+                <button onClick={addEndpoint} className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition whitespace-nowrap">
+                  Add
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
-      </section>
+          </div>
+        )}
 
-      {/* ═══ Stats Grid ═══ */}
-      <section>
-        <h2 className="text-xl font-bold mb-4">📊 Metrics at a Glance</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          <StatCard label="Endpoints" value="12" sub="monitored" color="emerald" />
-          <StatCard label="Checks Today" value="3,456" sub="health pings" color="cyan" />
-          <StatCard label="Avg Response" value="142ms" sub="p50 latency" color="blue" />
-          <StatCard label="Status Pages" value="8" sub="generated" color="violet" />
-          <StatCard label="Incidents" value="2" sub="detected" color="rose" />
-          <StatCard label="Badge Hits" value="1,247" sub="requests today" color="amber" />
-        </div>
-      </section>
+        {/* Webhook Form */}
+        {showWebhook && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+            <h3 className="font-semibold text-lg">🔔 Webhook Alerts</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <input
+                placeholder="Webhook URL"
+                value={whForm.url}
+                onChange={(e) => setWhForm({ ...whForm, url: e.target.value })}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+              />
+              <select
+                value={whForm.endpoint_id}
+                onChange={(e) => setWhForm({ ...whForm, endpoint_id: e.target.value })}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+              >
+                <option value="">All Endpoints (global)</option>
+                {endpoints.map((ep) => (
+                  <option key={ep.id} value={ep.id}>{ep.name}</option>
+                ))}
+              </select>
+              <button onClick={addWebhook} className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition">
+                Add Webhook
+              </button>
+            </div>
+            {webhooks.length > 0 && (
+              <div className="space-y-2 mt-4">
+                {webhooks.map((wh) => (
+                  <div key={wh.id} className="flex items-center justify-between bg-zinc-800/50 rounded-lg px-4 py-3">
+                    <div>
+                      <span className="text-sm text-zinc-300 font-mono">{wh.url}</span>
+                      <span className="text-xs text-zinc-500 ml-3">{wh.endpoint_id ? "Specific" : "Global"}</span>
+                    </div>
+                    <button onClick={() => deleteWebhook(wh.id)} className="text-red-400 hover:text-red-300 text-sm">Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
-      {/* ═══ How AgentPulse Works — Flow Diagram ═══ */}
-      <section className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-        <h2 className="text-xl font-bold mb-5">🔄 How AgentPulse Works</h2>
-        <div className="overflow-x-auto">
-          <div className="flex items-center gap-3 min-w-max py-2">
-            <FlowBox emoji="📝" text="Register Endpoint" color="border-emerald-500/40 bg-emerald-500/10" />
-            <Arrow />
-            <FlowBox emoji="⏰" text="Cron Ping (5 min)" color="border-cyan-500/40 bg-cyan-500/10" />
-            <Arrow />
-            <FlowBox emoji="🩺" text="Health Check" color="border-blue-500/40 bg-blue-500/10" />
-            <Arrow />
-            <FlowBox emoji="💾" text="Store Result" color="border-violet-500/40 bg-violet-500/10" />
-            <Arrow />
-            <FlowBox emoji="📊" text="Update Status Page" color="border-amber-500/40 bg-amber-500/10" />
-            <Arrow />
-            <FlowBox emoji="🔔" text="Alert if Down" color="border-rose-500/40 bg-rose-500/10" />
+        {/* Endpoints Table */}
+        {endpoints.length === 0 ? (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-12 text-center">
+            <p className="text-zinc-500 text-lg mb-4">No endpoints yet</p>
+            <button onClick={seedDemo} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition">
+              🌱 Seed Demo Endpoints
+            </button>
           </div>
-        </div>
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-          <div className="bg-zinc-800/50 rounded-lg p-4">
-            <p className="text-emerald-400 font-semibold mb-1">Input</p>
-            <p className="text-zinc-400">MCP servers, ACP manifests, LLM API endpoints, raw HTTP URLs</p>
-          </div>
-          <div className="bg-zinc-800/50 rounded-lg p-4">
-            <p className="text-cyan-400 font-semibold mb-1">Processing</p>
-            <p className="text-zinc-400">Vercel Cron triggers API route → pings endpoint → records latency + status code</p>
-          </div>
-          <div className="bg-zinc-800/50 rounded-lg p-4">
-            <p className="text-amber-400 font-semibold mb-1">Output</p>
-            <p className="text-zinc-400">Status pages, SVG badges, webhook alerts, incident timeline, 30-day charts</p>
-          </div>
-        </div>
-      </section>
-
-      {/* ═══ Automation Flow ═══ */}
-      <section className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-        <h2 className="text-xl font-bold mb-5">⚙️ Automation Pipeline</h2>
-        <div className="overflow-x-auto">
-          <div className="flex items-center gap-3 min-w-max py-2">
-            <FlowBox emoji="🕐" text="Vercel Cron" color="border-zinc-600 bg-zinc-800" />
-            <Arrow />
-            <FlowBox emoji="🌐" text="API Route" color="border-zinc-600 bg-zinc-800" />
-            <Arrow />
-            <FlowBox emoji="📡" text="Ping Endpoints" color="border-emerald-500/40 bg-emerald-500/10" />
-            <Arrow />
-            <FlowBox emoji="⚖️" text="Compare Response" color="border-cyan-500/40 bg-cyan-500/10" />
-            <Arrow />
-            <FlowBox emoji="🗄️" text="Update DB" color="border-violet-500/40 bg-violet-500/10" />
-          </div>
-          <div className="flex items-center gap-3 min-w-max py-2 mt-3 pl-8">
-            <span className="text-zinc-600 text-lg">↳</span>
-            <FlowBox emoji="🏷️" text="Generate Badge SVG" color="border-amber-500/40 bg-amber-500/10" />
-            <Arrow />
-            <FlowBox emoji="📄" text="Render Status Page" color="border-blue-500/40 bg-blue-500/10" />
-            <Arrow />
-            <FlowBox emoji="🔔" text="Webhook Alert" color="border-rose-500/40 bg-rose-500/10" />
-          </div>
-        </div>
-      </section>
-
-      {/* ═══ Revenue Timeline ═══ */}
-      <section className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-        <h2 className="text-xl font-bold mb-5">💰 Revenue Timeline</h2>
-        <div className="relative">
-          {/* Timeline line */}
-          <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gradient-to-b from-emerald-500 via-cyan-500 to-violet-500" />
-          <div className="space-y-6 pl-12">
-            {[
-              { time: "Week 1 (Now)", title: "MVP Launch", desc: "Core monitoring, status pages live. First beta users.", color: "bg-emerald-400", active: true },
-              { time: "Week 2", title: "SEO & Organic Growth", desc: "Google indexing, ProductHunt prep, first organic signups.", color: "bg-emerald-500", active: false },
-              { time: "Week 3", title: "Pro Tier Launch", desc: "Stripe integration, first paying customers at $9/mo.", color: "bg-cyan-400", active: false },
-              { time: "Month 2", title: "$500 MRR", desc: "~55 Pro subscribers. Content marketing + integrations.", color: "bg-blue-400", active: false },
-              { time: "Month 3", title: "$2K MRR", desc: "Team tier adoption. 100+ paying accounts.", color: "bg-violet-400", active: false },
-              { time: "Month 6", title: "$10K MRR", desc: "Enterprise tier, SOC2, dedicated support.", color: "bg-purple-400", active: false },
-            ].map((m) => (
-              <div key={m.time} className="relative">
-                <div className={`absolute -left-[2.35rem] top-1 w-4 h-4 rounded-full ${m.color} ${m.active ? "ring-4 ring-emerald-400/20" : ""}`} />
-                <div className="flex items-baseline gap-3">
-                  <span className={`text-xs font-mono ${m.active ? "text-emerald-400" : "text-zinc-500"}`}>{m.time}</span>
-                  <span className={`text-sm font-semibold ${m.active ? "text-white" : "text-zinc-300"}`}>{m.title}</span>
+        ) : (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+            <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-4 px-6 py-3 border-b border-zinc-800 text-xs text-zinc-500 uppercase tracking-wider">
+              <div>Status</div>
+              <div>Endpoint</div>
+              <div>Type</div>
+              <div>Uptime</div>
+              <div>Response</div>
+              <div>Last Check</div>
+              <div>Actions</div>
+            </div>
+            {endpoints.map((ep) => (
+              <div key={ep.id} className="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-4 px-6 py-4 border-b border-zinc-800/50 items-center hover:bg-zinc-800/30 transition">
+                <div><span className={`inline-block w-3 h-3 rounded-full ${statusColor(ep.status)} ${ep.status === "up" ? "animate-pulse" : ""}`} /></div>
+                <div>
+                  <a href={`/status/${ep.slug}`} className="text-sm font-medium text-zinc-200 hover:text-emerald-400 transition">
+                    {ep.name}
+                  </a>
+                  <p className="text-xs text-zinc-600 font-mono truncate max-w-xs">{ep.url}</p>
                 </div>
-                <p className="text-zinc-500 text-sm mt-0.5">{m.desc}</p>
+                <div><span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-1 rounded uppercase">{ep.type}</span></div>
+                <div className={`text-sm font-mono ${ep.uptime !== undefined && ep.uptime >= 99 ? "text-emerald-400" : ep.uptime !== undefined && ep.uptime >= 95 ? "text-amber-400" : ep.uptime !== undefined ? "text-red-400" : "text-zinc-600"}`}>
+                  {ep.uptime !== undefined ? `${ep.uptime}%` : "—"}
+                </div>
+                <div className="text-sm font-mono text-zinc-400">
+                  {ep.avgResponse ? `${ep.avgResponse}ms` : "—"}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {ep.lastCheck ? new Date(ep.lastCheck + "Z").toLocaleTimeString() : "Never"}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => checkNow(ep)}
+                    disabled={ep.checking}
+                    className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition disabled:opacity-50"
+                  >
+                    {ep.checking ? "⏳" : "🩺"} Check
+                  </button>
+                  <button
+                    onClick={() => deleteEndpoint(ep.id)}
+                    className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-red-900/50 border border-zinc-700 hover:border-red-800 rounded-lg transition text-red-400"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             ))}
           </div>
-        </div>
-      </section>
+        )}
 
-      {/* ═══ Development Status ═══ */}
-      <section className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-        <h2 className="text-xl font-bold mb-5">🛠️ Development Status</h2>
-        <div className="space-y-4">
-          <ProgressBar label="Phase 1: Core Infrastructure (Next.js, SQLite, API routes)" pct={100} color="bg-emerald-500" />
-          <ProgressBar label="Phase 2: Health Check Engine (HTTP/MCP/ACP)" pct={100} color="bg-emerald-500" />
-          <ProgressBar label="Phase 3: Status Page Generation (/status/[slug])" pct={100} color="bg-emerald-500" />
-          <ProgressBar label="Phase 4: Badge System (SVG uptime badges)" pct={100} color="bg-emerald-500" />
-          <ProgressBar label="Phase 5: Vercel Cron (5-min automated checks)" pct={100} color="bg-emerald-500" />
-          <ProgressBar label="Phase 6: Incident Detection & Resolution" pct={100} color="bg-emerald-500" />
-          <ProgressBar label="Phase 7: Alerts & Webhooks" pct={20} color="bg-amber-400" />
-          <ProgressBar label="Phase 8: Pro Tier & Stripe Payments" pct={0} color="bg-zinc-600" />
-        </div>
-        <div className="mt-5 flex items-center gap-4 text-xs text-zinc-500">
-          <span>🟢 Complete</span>
-          <span>🟡 In Progress</span>
-          <span>⚪ Not Started</span>
-          <span className="ml-auto">Overall: ~75%</span>
-        </div>
-      </section>
+        {/* Seed button if endpoints exist */}
+        {endpoints.length > 0 && endpoints.length < 5 && (
+          <div className="text-center">
+            <button onClick={seedDemo} className="text-sm text-zinc-500 hover:text-zinc-300 transition">
+              🌱 Add demo endpoints
+            </button>
+          </div>
+        )}
 
-      {/* ═══ Tech Stack ═══ */}
-      <section>
-        <h2 className="text-xl font-bold mb-4">🧱 Tech Stack</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {[
-            { emoji: "▲", name: "Next.js 16", desc: "App Router + RSC" },
-            { emoji: "⏰", name: "Vercel Cron", desc: "Scheduled pings" },
-            { emoji: "🗄️", name: "Turso/SQLite", desc: "Edge database" },
-            { emoji: "🎨", name: "Tailwind v4", desc: "Utility CSS" },
-            { emoji: "🏷️", name: "SVG Badges", desc: "Dynamic generation" },
-            { emoji: "🔔", name: "Webhooks", desc: "Alert delivery" },
-          ].map((t) => (
-            <div key={t.name} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center hover:border-zinc-700 transition">
-              <div className="text-2xl mb-2">{t.emoji}</div>
-              <p className="text-sm font-semibold">{t.name}</p>
-              <p className="text-zinc-500 text-xs">{t.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ═══ Project Synergy ═══ */}
-      <section className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-        <h2 className="text-xl font-bold mb-4">🔗 Pragmasix Ecosystem Synergy</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-          <div className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700/50">
-            <p className="font-semibold text-emerald-400 mb-1">ACP Watchtower → AgentPulse</p>
-            <p className="text-zinc-400">Validate manifest → then monitor uptime. Natural pipeline.</p>
-          </div>
-          <div className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700/50">
-            <p className="font-semibold text-cyan-400 mb-1">LLM Prices → AgentPulse</p>
-            <p className="text-zinc-400">Track LLM API uptime alongside pricing data. Cross-sell.</p>
-          </div>
-          <div className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700/50">
-            <p className="font-semibold text-amber-400 mb-1">SEO Compounding</p>
-            <p className="text-zinc-400">Status pages create indexable URLs for every monitored endpoint.</p>
-          </div>
-          <div className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700/50">
-            <p className="font-semibold text-violet-400 mb-1">Badge Virality</p>
-            <p className="text-zinc-400">Every README badge links back → organic traffic flywheel.</p>
-          </div>
-        </div>
-      </section>
-
-      <footer className="text-center text-zinc-600 text-xs py-6">
-        AgentPulse Dashboard — Internal Use · Pragmasix · {now}
-      </footer>
+        <footer className="text-center text-zinc-600 text-xs py-6">
+          AgentPulse · <a href="/" className="hover:text-emerald-400 transition">Home</a> · <a href="/dashboard" className="hover:text-emerald-400 transition">Dashboard</a>
+        </footer>
+      </div>
     </main>
+  );
+}
+
+function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
+  const accent: Record<string, string> = {
+    emerald: "text-emerald-400",
+    cyan: "text-cyan-400",
+    rose: "text-rose-400",
+    violet: "text-violet-400",
+  };
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <p className="text-zinc-500 text-xs uppercase tracking-wider mb-1">{label}</p>
+      <p className={`text-3xl font-bold ${accent[color] || "text-emerald-400"}`}>{value}</p>
+    </div>
   );
 }
