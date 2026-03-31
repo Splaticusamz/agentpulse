@@ -68,7 +68,7 @@ export default function Dashboard() {
           {[
             { name: "API Server", ok: true },
             { name: "Cron Scheduler", ok: true },
-            { name: "Database (Turso)", ok: true },
+            { name: "Database (SQLite)", ok: true },
             { name: "Badge Service", ok: true },
           ].map((s) => (
             <div key={s.name} className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3">
@@ -184,17 +184,20 @@ export default function Dashboard() {
       <section className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
         <h2 className="text-xl font-bold mb-5">🛠️ Development Status</h2>
         <div className="space-y-4">
-          <ProgressBar label="Phase 1: Core Infrastructure (Next.js, DB, API routes)" pct={80} color="bg-emerald-500" />
-          <ProgressBar label="Phase 2: Status Page Generation" pct={60} color="bg-emerald-400" />
-          <ProgressBar label="Phase 3: Badge System (SVG, embed codes)" pct={40} color="bg-amber-400" />
-          <ProgressBar label="Phase 4: Alerts & Webhooks" pct={20} color="bg-orange-400" />
-          <ProgressBar label="Phase 5: Pro Tier & Stripe Payments" pct={0} color="bg-zinc-600" />
+          <ProgressBar label="Phase 1: Core Infrastructure (Next.js, SQLite, API routes)" pct={100} color="bg-emerald-500" />
+          <ProgressBar label="Phase 2: Health Check Engine (HTTP/MCP/ACP)" pct={100} color="bg-emerald-500" />
+          <ProgressBar label="Phase 3: Status Page Generation (/status/[slug])" pct={100} color="bg-emerald-500" />
+          <ProgressBar label="Phase 4: Badge System (SVG uptime badges)" pct={100} color="bg-emerald-500" />
+          <ProgressBar label="Phase 5: Vercel Cron (5-min automated checks)" pct={100} color="bg-emerald-500" />
+          <ProgressBar label="Phase 6: Incident Detection & Resolution" pct={100} color="bg-emerald-500" />
+          <ProgressBar label="Phase 7: Alerts & Webhooks" pct={20} color="bg-amber-400" />
+          <ProgressBar label="Phase 8: Pro Tier & Stripe Payments" pct={0} color="bg-zinc-600" />
         </div>
         <div className="mt-5 flex items-center gap-4 text-xs text-zinc-500">
           <span>🟢 Complete</span>
           <span>🟡 In Progress</span>
           <span>⚪ Not Started</span>
-          <span className="ml-auto">Overall: ~40%</span>
+          <span className="ml-auto">Overall: ~75%</span>
         </div>
       </section>
 
