@@ -5,7 +5,8 @@ let _client: Client | null = null;
 export function getClient(): Client {
   if (_client) return _client;
   
-  const url = process.env.TURSO_DATABASE_URL || "file:agentpulse.db";
+  // Turso for production, local file for dev, /tmp for serverless fallback
+  const url = process.env.TURSO_DATABASE_URL || (process.env.VERCEL ? "file:/tmp/agentpulse.db" : "file:agentpulse.db");
   const authToken = process.env.TURSO_AUTH_TOKEN;
   
   _client = createClient({ url, authToken });
