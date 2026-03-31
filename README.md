@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AgentPulse ⚡
+
+**AI Agent Uptime Monitor & Status Pages**
+
+Monitor your AI agents, MCP servers, and LLM API endpoints. Get public status pages, uptime badges, and instant alerts when things go down.
+
+> The first dedicated monitoring solution for the AI agent ecosystem.
+
+🌐 **Live:** [agentpulse.vercel.app](https://agentpulse.vercel.app)
+
+---
+
+## Why AgentPulse?
+
+120+ AI agent tools are shipping every month. MCP servers are everywhere. But there's **zero dedicated monitoring** for this ecosystem. Traditional uptime tools don't understand agent protocols, manifest validation, or MCP health checks.
+
+AgentPulse fills that gap.
+
+## Architecture
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│  Dashboard   │────▶│  Next.js API  │────▶│  Health Checker  │
+│  (React/TW)  │     │  (App Router) │     │  (Vercel Cron)   │
+└─────────────┘     └──────────────┘     └─────────────────┘
+                           │                       │
+                    ┌──────┴──────┐         ┌──────┴──────┐
+                    │   Turso DB  │         │  Endpoints   │
+                    │  (SQLite)   │         │  MCP/ACP/LLM │
+                    └─────────────┘         └─────────────┘
+                           │
+                    ┌──────┴──────┐
+                    │ Status Pages │
+                    │ /status/[id] │
+                    └─────────────┘
+```
+
+### Tech Stack
+- **Framework:** Next.js 14 (App Router)
+- **Database:** Turso (libSQL/SQLite edge)
+- **Scheduling:** Vercel Cron (5-min health checks)
+- **UI:** Tailwind CSS + shadcn/ui
+- **Deployment:** Vercel (Edge-optimized)
+- **Badges:** Dynamic SVG generation
+
+## Revenue Model
+
+| Tier | Price | Endpoints | Check Interval | Features |
+|------|-------|-----------|----------------|----------|
+| **Free** | $0 | 3 | 5 min | Public status page, badges |
+| **Pro** | $9/mo | 25 | 1 min | Alerts, private pages, API |
+| **Team** | $19/mo | 100 | 1 min | Multi-region, webhooks, priority support |
+
+**Revenue timeline:** 2-3 weeks to first paying users via SEO + AI agent community.
+
+## Features
+
+- ✅ Endpoint registration (MCP, ACP, LLM APIs)
+- ✅ Automated health checks (cron-based)
+- ✅ Public status pages with uptime %
+- ✅ Incident timeline (auto-detected)
+- ✅ SVG uptime badges for READMEs
+- ✅ Management dashboard
+- 🔜 Email/webhook alerts
+- 🔜 Multi-region checks
+- 🔜 Response time sparklines
+- 🔜 ACP Watchtower integration
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# → http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Related Projects
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- [ACP Watchtower](https://acp-watchtower.vercel.app) — ACP manifest validator (validate → monitor pipeline)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## License
 
-## Learn More
+MIT
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Built by [Pragmasix](https://pragmasix.vercel.app) 🤖
