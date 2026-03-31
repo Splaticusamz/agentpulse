@@ -15,7 +15,21 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "AgentPulse — AI Agent Uptime Monitor & Status Pages",
-  description: "Monitor MCP servers, ACP manifests, and LLM endpoints. Automated health checks, public status pages, and uptime badges.",
+  description: "Monitor MCP servers, ACP manifests, and LLM endpoints. Automated health checks, public status pages, and uptime badges for AI agent infrastructure.",
+  keywords: ["AI agent monitoring", "MCP server uptime", "ACP manifest", "LLM API status", "uptime monitor", "status page", "agent infrastructure"],
+  openGraph: {
+    title: "AgentPulse — AI Agent Uptime Monitor",
+    description: "Monitor MCP servers, ACP manifests, and LLM endpoints. Automated health checks and status pages.",
+    url: "https://agentpulse-woad.vercel.app",
+    siteName: "AgentPulse",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AgentPulse — AI Agent Uptime Monitor",
+    description: "Monitor MCP servers, ACP manifests, and LLM endpoints.",
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({
@@ -37,7 +51,8 @@ export default function RootLayout({
             <div className="flex items-center gap-6 text-sm">
               <Link href="/" className="text-zinc-400 hover:text-white transition">Home</Link>
               <Link href="/dashboard" className="text-zinc-400 hover:text-white transition">Dashboard</Link>
-              <a href="#pricing" className="text-zinc-400 hover:text-white transition">Pricing</a>
+              <Link href="/docs" className="text-zinc-400 hover:text-white transition">API Docs</Link>
+              <a href="/#pricing" className="text-zinc-400 hover:text-white transition">Pricing</a>
               <button className="bg-emerald-500 hover:bg-emerald-400 text-black font-medium px-4 py-1.5 rounded-lg transition text-sm">Get Started</button>
             </div>
           </div>
