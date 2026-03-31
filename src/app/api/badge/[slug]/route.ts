@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getClient, migrate } from "@/lib/db";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const db = getDb();
+  const client = getClient();
+  await migrate();
 
-  const endpoint = db.prepare("SELECT * FROM endpoints WHERE slug = ?").get(slug) as Record<string, unknown> | undefined;
+  const epResult = await client.execute({ sql: "SELECT * FROM endpoints WHERE slug = ?", args: [slug] });
+  const endpoint = epResult.rows[0];
   if (!endpoint) {
     return new NextResponse(makeBadge("unknown", "#999"), { headers: svgHeaders() });
   }
 
-  const checks = db.prepare(
-    "SELECT status FROM checks WHERE endpoint_id = ? AND checked_at > datetime('now', '-24 hours')"
-  ).all(endpoint.id as string) as Array<{ status: string }>;
+  const checksResult = await client.execute({
+    sql: "SELECT status FROM checks WHERE endpoint_id = ? AND checked_at > datetime('now', '-24 hours')",
+    args: [endpoint.id as string],
+  });
+  const checks = checksResult.rows;
 
   const total = checks.length;
   const up = checks.filter((c) => c.status === "up").length;

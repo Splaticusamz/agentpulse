@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getClient, migrate } from "@/lib/db";
 import { checkEndpoint } from "@/lib/checker";
 import { v4 as uuid } from "uuid";
 
@@ -12,23 +12,25 @@ const DEMO_ENDPOINTS = [
 ];
 
 export async function POST() {
-  const db = getDb();
+  const client = getClient();
+  await migrate();
   const added: string[] = [];
 
   for (const ep of DEMO_ENDPOINTS) {
-    const existing = db.prepare("SELECT id FROM endpoints WHERE slug = ?").get(ep.slug);
-    if (existing) continue;
+    const existing = await client.execute({ sql: "SELECT id FROM endpoints WHERE slug = ?", args: [ep.slug] });
+    if (existing.rows.length > 0) continue;
     const id = uuid();
-    db.prepare("INSERT INTO endpoints (id, name, url, type, slug) VALUES (?, ?, ?, ?, ?)").run(
-      id, ep.name, ep.url, ep.type, ep.slug
-    );
+    await client.execute({
+      sql: "INSERT INTO endpoints (id, name, url, type, slug) VALUES (?, ?, ?, ?, ?)",
+      args: [id, ep.name, ep.url, ep.type, ep.slug],
+    });
     added.push(ep.name);
 
-    // Run initial check
     const result = await checkEndpoint(ep.url, ep.type);
-    db.prepare(
-      "INSERT INTO checks (id, endpoint_id, status, response_time, status_code, error, checked_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))"
-    ).run(uuid(), id, result.status, result.responseTime, result.statusCode, result.error);
+    await client.execute({
+      sql: "INSERT INTO checks (id, endpoint_id, status, response_time, status_code, error, checked_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+      args: [uuid(), id, result.status, result.responseTime, result.statusCode, result.error],
+    });
   }
 
   return NextResponse.json({ seeded: added });

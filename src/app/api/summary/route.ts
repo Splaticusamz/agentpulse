@@ -1,21 +1,25 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getClient, migrate } from "@/lib/db";
 
 export async function GET() {
-  const db = getDb();
-  const total = (db.prepare("SELECT COUNT(*) as c FROM endpoints").get() as { c: number }).c;
-  const activeIncidents = (db.prepare("SELECT COUNT(*) as c FROM incidents WHERE resolved_at IS NULL").get() as { c: number }).c;
+  const client = getClient();
+  await migrate();
   
-  // Get status breakdown from recent checks
-  const statusCounts = db.prepare(`
+  const totalResult = await client.execute("SELECT COUNT(*) as c FROM endpoints");
+  const total = Number(totalResult.rows[0]?.c ?? 0);
+  
+  const activeResult = await client.execute("SELECT COUNT(*) as c FROM incidents WHERE resolved_at IS NULL");
+  const activeIncidents = Number(activeResult.rows[0]?.c ?? 0);
+  
+  const statusResult = await client.execute(`
     SELECT e.id, e.name, e.slug, 
       (SELECT status FROM checks WHERE endpoint_id = e.id ORDER BY checked_at DESC LIMIT 1) as current_status
     FROM endpoints e
-  `).all() as Array<{ id: string; name: string; slug: string; current_status: string | null }>;
+  `);
   
-  const up = statusCounts.filter(s => s.current_status === "up").length;
-  const degraded = statusCounts.filter(s => s.current_status === "degraded").length;
-  const down = statusCounts.filter(s => s.current_status === "down").length;
+  const up = statusResult.rows.filter(s => s.current_status === "up").length;
+  const degraded = statusResult.rows.filter(s => s.current_status === "degraded").length;
+  const down = statusResult.rows.filter(s => s.current_status === "down").length;
 
   const overall = down > 0 ? "partial_outage" : degraded > 0 ? "degraded" : "operational";
 
